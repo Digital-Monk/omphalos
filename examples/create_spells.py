@@ -76,6 +76,8 @@ def main():
         print()
     
     # Save spellbook
+    import os
+    os.makedirs("worlds", exist_ok=True)
     spellbook.save_to_file("worlds/custom_spells.json")
     print(f"Saved {len(spellbook.spells)} spells to worlds/custom_spells.json")
 

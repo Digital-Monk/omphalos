@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
 from game.world.world import World
 from game.world.player import Player
 

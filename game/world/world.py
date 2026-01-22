@@ -43,12 +43,14 @@ class World:
     def get_terrain_value(self, x, y):
         """Get terrain value with overlays applied"""
         base = self.terrain.get_value(x, y)
-        # Apply overlays
+        # Apply all active overlays
+        result = base
         for overlay in self.overlays:
             if overlay.active:
                 combined = overlay.combine_with_field(self.terrain)
-                return combined[int(y), int(x)]
-        return base
+                # Blend the overlay effect
+                result = (result + combined[int(y), int(x)]) / 2
+        return result
     
     def get_energy_value(self, x, y, energy_type):
         """Get energy value at a position"""

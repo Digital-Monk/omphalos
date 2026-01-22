@@ -1,4 +1,8 @@
 """Player character and interaction"""
+from game.magic.stats import PlayerStats
+from game.magic.evocation import Evocation
+from game.magic.spells import Spellbook
+from game.magic.thaumaturgy import Thaumaturgy
 
 
 class Player:
@@ -11,11 +15,6 @@ class Player:
         Args:
             x, y: Starting position
         """
-        from game.magic.stats import PlayerStats
-        from game.magic.evocation import Evocation
-        from game.magic.spells import Spellbook
-        from game.magic.thaumaturgy import Thaumaturgy
-        
         self.x = x
         self.y = y
         self.stats = PlayerStats()

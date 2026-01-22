@@ -11,7 +11,7 @@ This guide explains how to set up, run, and play the Omphalos procedural open wo
 ### Setup
 1. Clone the repository:
 ```bash
-git clone https://github.com/Digital-Monk/omphalos.git
+git clone <repository-url>
 cd omphalos
 ```
 

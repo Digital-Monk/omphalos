@@ -72,6 +72,11 @@ class Evocation:
             rate = base_rate
             magic_cost = 1 * dt
         
+        # Check if we have enough magic before attempting transfer
+        if self.player_stats.current_magic_reserve < magic_cost:
+            self.stop()
+            return 0
+        
         # Drain magic reserve
         if not self.player_stats.use_magic(magic_cost):
             self.stop()
