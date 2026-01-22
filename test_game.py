@@ -2,6 +2,7 @@
 """Test runner for Omphalos - runs automated tests of all systems"""
 import sys
 import os
+import math
 sys.path.insert(0, os.path.dirname(__file__))
 
 def test_noise_generation():
@@ -120,6 +121,46 @@ def test_world_system():
     print("✓ Player magic integration working")
     return True
 
+def test_planet_terrain_and_movement():
+    """Test planet terrain and movement modifiers."""
+    print("\n=== Testing Planet Terrain ===")
+    from game.core.planet_terrain import PlanetTerrain
+    from game.world.planet_player import PlanetPlayer
+    
+    radius = 1000.0
+    seed = 7
+    scale = 0.5
+    altitude_scale = 25.0
+    wrap = 128
+    terrain = PlanetTerrain(
+        radius=radius,
+        seed=seed,
+        scale=scale,
+        altitude_scale=altitude_scale,
+        wrap=wrap,
+    )
+    altitude_a = terrain.sample_altitude(0.2, 1.1)
+    altitude_b = terrain.sample_altitude(0.2, 1.1)
+    assert altitude_a == altitude_b
+    distance_tolerance = 1e-6
+    altitude_wrap = terrain.sample_altitude(0.2, 1.1 + 2 * math.pi)
+    assert altitude_a == altitude_wrap
+    x, y, z = terrain.surface_point(0.2, 1.1)
+    distance = (x ** 2 + y ** 2 + z ** 2) ** 0.5
+    assert abs(distance - (terrain.radius + altitude_a)) < distance_tolerance
+    print("✓ Planet terrain sampling working")
+    
+    player = PlanetPlayer(latitude=0.0, longitude=0.0, heading=0.0)
+    assert player.speed_multiplier(0) == 1
+    assert player.speed_multiplier(1) == 4
+    assert player.speed_multiplier(2) == 16
+    assert player.speed_multiplier(3) == 64
+    assert player.speed_multiplier(6) == 64
+    player.move(forward=1.0, strafe=0.0, base_speed=10.0, modifier_key_count=2, planet_radius=1000.0)
+    assert player.latitude > 0
+    print("✓ Planet movement modifiers working")
+    return True
+
 def test_game_loop():
     """Test that game can be imported and initialized"""
     print("\n=== Testing Game Loop ===")
@@ -145,6 +186,7 @@ def run_all_tests():
         test_energy_system,
         test_magic_systems,
         test_world_system,
+        test_planet_terrain_and_movement,
         test_game_loop,
     ]
     
