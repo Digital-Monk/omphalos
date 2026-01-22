@@ -180,11 +180,12 @@ cd /path/to/omphalos
 python -m game.main
 ```
 
-### Display Issues
-If the game window doesn't appear or crashes, ensure Pygame is installed:
-```bash
-pip install pygame --upgrade
-```
+Note: The game is currently in a state where the core logic has been implemented, but rendering will be done through Godot. The above command will initialize the game logic but won't display a window.
+
+### Future Integration
+The game is being transitioned to Godot for rendering. The core Python logic can be integrated with Godot through:
+- GDScript calling Python modules
+- Or rewriting the rendering layer in Godot while keeping the game logic structure
 
 ### Performance Issues
 If the game runs slowly:
