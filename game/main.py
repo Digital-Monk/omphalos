@@ -23,9 +23,9 @@ class Game:
         self.camera_y = 0
         self.zoom = 4  # Pixels per world unit
         
-        # UI state
-        self.show_debug = True
-        self.selected_energy = "heat"
+        # UI state - these will be used by Godot for rendering decisions
+        self.show_debug = True  # Controls whether to show all energy overlays or just selected
+        self.selected_energy = "heat"  # Currently selected energy type for evocation
         
         # Add some starter spells
         self._setup_starter_spells()
