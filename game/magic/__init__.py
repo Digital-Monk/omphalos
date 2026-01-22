@@ -1,0 +1,1 @@
+"""Magic systems for Omphalos"""
