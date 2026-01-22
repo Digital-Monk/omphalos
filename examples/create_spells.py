@@ -1,4 +1,8 @@
 """Example: Create and save custom spells using Thaumaturgy"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from game.magic.stats import PlayerStats
 from game.magic.spells import Spellbook
 from game.magic.thaumaturgy import Thaumaturgy
