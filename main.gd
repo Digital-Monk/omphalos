@@ -186,48 +186,7 @@ func _apply_state() -> void:
 	_update_camera()
 
 func _update_camera() -> void:
-	var player_pos: Vector3 = _player_node.position
-
-	# Compute flat vector from camera to player and desired yaw
-	var cam_pos: Vector3 = _camera.global_transform.origin
-	var to_player: Vector3 = player_pos - cam_pos
-	var to_player_flat: Vector3 = Vector3(to_player.x, 0.0, to_player.z)
-	# Ensure yaw_after_step is always defined for later restore
-	var yaw_after_step: float = _camera.rotation.y
-	if to_player_flat.length() > 0.0001:
-		# Compute signed angle between camera forward and vector to player (XZ plane)
-		var cam_forward_vec: Vector3 = -_camera.global_transform.basis.z
-		var forward_flat: Vector3 = Vector3(cam_forward_vec.x, 0.0, cam_forward_vec.z)
-		if forward_flat.length() < 0.0001:
-			forward_flat = Vector3(0.0, 0.0, 1.0)
-		var a: Vector3 = forward_flat.normalized()
-		var b: Vector3 = to_player_flat.normalized()
-		var dot: float = clamp(a.dot(b), -1.0, 1.0)
-		var cross_y: float = a.x * b.z - a.z * b.x
-		var desired_angle: float = atan2(cross_y, dot)
-
-		var max_step: float = camera_yaw_speed * get_process_delta_time()
-		var step: float = desired_angle
-		if abs(step) > max_step:
-			step = sign(step) * max_step
-		_camera.rotate_y(step)
-		yaw_after_step = _camera.rotation.y
-
-	# After yawing, compute forward and place camera at desired distance
-	var cam_forward: Vector3 = -_camera.global_transform.basis.z.normalized()
-	var desired_pos: Vector3 = player_pos - cam_forward * camera_distance
-	desired_pos.y = player_pos.y + camera_height
-
-	# Apply shoulder offset relative to current camera right vector
-	var cam_right: Vector3 = _camera.global_transform.basis.x.normalized()
-	desired_pos += cam_right * camera_shoulder_offset
-
-	# Place camera at desired position, set pitch via look_at, then restore yaw
-	_camera.global_transform = Transform3D(_camera.global_transform.basis, desired_pos)
-	_camera.look_at(player_pos, Vector3.UP)
-	var cur_rot: Vector3 = _camera.rotation
-	cur_rot.y = yaw_after_step
-	_camera.rotation = cur_rot
+	# Full camera update happens only when the player moves; see below.
 	var player_pos: Vector3 = _player_node.position
 
 	# Only perform the full camera re-align when the player has moved (position change),
