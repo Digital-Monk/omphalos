@@ -193,17 +193,23 @@ func _update_camera() -> void:
 	var to_player: Vector3 = player_pos - cam_pos
 	var to_player_flat: Vector3 = Vector3(to_player.x, 0.0, to_player.z)
 	if to_player_flat.length() > 0.0001:
-		var desired_yaw: float = atan2(to_player_flat.x, to_player_flat.z)
+		# Compute signed angle between camera forward and vector to player (XZ plane)
+		var cam_forward_vec: Vector3 = -_camera.global_transform.basis.z
+		var forward_flat: Vector3 = Vector3(cam_forward_vec.x, 0.0, cam_forward_vec.z)
+		if forward_flat.length() < 0.0001:
+			forward_flat = Vector3(0.0, 0.0, 1.0)
+		var a: Vector3 = forward_flat.normalized()
+		var b: Vector3 = to_player_flat.normalized()
+		var dot: float = clamp(a.dot(b), -1.0, 1.0)
+		var cross_y: float = a.x * b.z - a.z * b.x
+		var desired_angle: float = atan2(cross_y, dot)
 
-		var current_yaw: float = _camera.rotation.y
-		var diff: float = _angle_diff(desired_yaw, current_yaw)
-
-		# Rotate only up to camera_yaw_speed * frame_delta to avoid instant flips
 		var max_step: float = camera_yaw_speed * get_process_delta_time()
-		var step: float = diff
-		if abs(diff) > max_step:
-			step = sign(diff) * max_step
+		var step: float = desired_angle
+		if abs(step) > max_step:
+			step = sign(step) * max_step
 		_camera.rotate_y(step)
+		var yaw_after_step: float = _camera.rotation.y
 
 	# After yawing, compute forward and place camera at desired distance
 	var cam_forward: Vector3 = -_camera.global_transform.basis.z.normalized()
@@ -214,9 +220,12 @@ func _update_camera() -> void:
 	var cam_right: Vector3 = _camera.global_transform.basis.x.normalized()
 	desired_pos += cam_right * camera_shoulder_offset
 
-	# Place camera instantly at desired position and look at player
+	# Place camera at desired position, set pitch via look_at, then restore yaw
 	_camera.global_transform = Transform3D(_camera.global_transform.basis, desired_pos)
 	_camera.look_at(player_pos, Vector3.UP)
+	var cur_rot: Vector3 = _camera.rotation
+	cur_rot.y = yaw_after_step
+	_camera.rotation = cur_rot
 
 func _update_hud() -> void:
 	var pos_text := "Pos: (0, 0, 0)"
