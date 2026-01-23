@@ -3,16 +3,12 @@
 /android/
 
 # Local/editor/IDE and project artifacts
-.editorconfig
-.gitattributes
-.github/
 .vscode/
 
 # Godot generated UID for imported scene (keep local)
 main.gd.uid
 
 # Icon imports and editor artifacts
-icon.svg
 icon.svg.import
 
 # Python virtualenv
