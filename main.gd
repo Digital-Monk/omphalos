@@ -192,6 +192,8 @@ func _update_camera() -> void:
 	var cam_pos: Vector3 = _camera.global_transform.origin
 	var to_player: Vector3 = player_pos - cam_pos
 	var to_player_flat: Vector3 = Vector3(to_player.x, 0.0, to_player.z)
+	# Ensure yaw_after_step is always defined for later restore
+	var yaw_after_step: float = _camera.rotation.y
 	if to_player_flat.length() > 0.0001:
 		# Compute signed angle between camera forward and vector to player (XZ plane)
 		var cam_forward_vec: Vector3 = -_camera.global_transform.basis.z
