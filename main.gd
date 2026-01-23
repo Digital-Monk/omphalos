@@ -211,7 +211,7 @@ func _update_camera() -> void:
 		if abs(step) > max_step:
 			step = sign(step) * max_step
 		_camera.rotate_y(step)
-		var yaw_after_step: float = _camera.rotation.y
+		yaw_after_step = _camera.rotation.y
 
 	# After yawing, compute forward and place camera at desired distance
 	var cam_forward: Vector3 = -_camera.global_transform.basis.z.normalized()
