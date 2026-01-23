@@ -113,6 +113,16 @@ func _connect_udp() -> void:
 	_udp.connect_to_host(server_host, server_port)
 	_local_port = _udp.get_local_port()
 
+
+func _angle_diff(a: float, b: float) -> float:
+	var TAU: float = PI * 2.0
+	var d: float = a - b
+	while d > PI:
+		d -= TAU
+	while d < -PI:
+		d += TAU
+	return d
+
 func _send_message(msg_type: String, payload: Dictionary) -> void:
 	_seq += 1
 	var message := {
@@ -185,21 +195,11 @@ func _update_camera() -> void:
 	if to_player_flat.length() > 0.0001:
 		var desired_yaw: float = atan2(to_player_flat.x, to_player_flat.z)
 
-		# Helper: shortest signed angle difference in [-PI, PI]
-		var TAU: float = PI * 2.0
-		func _angle_diff(a: float, b: float) -> float:
-			var d: float = a - b
-			while d > PI:
-				d -= TAU
-			while d < -PI:
-				d += TAU
-			return d
-
 		var current_yaw: float = _camera.rotation.y
 		var diff: float = _angle_diff(desired_yaw, current_yaw)
 
 		# Rotate only up to camera_yaw_speed * frame_delta to avoid instant flips
-		var max_step: float = camera_yaw_speed * Engine.get_physics_process_delta_time()
+		var max_step: float = camera_yaw_speed * get_process_delta_time()
 		var step: float = diff
 		if abs(diff) > max_step:
 			step = sign(diff) * max_step
