@@ -12,6 +12,7 @@ extends Node3D
 @export var camera_look_ahead: float = 2.0
 @export var camera_shoulder_offset: float = 1.2
 @export var view_distance_chunks: int = 3
+@export var camera_yaw_speed: float = 6.0
 
 var _udp := PacketPeerUDP.new()
 var _seq := 0
@@ -177,27 +178,43 @@ func _apply_state() -> void:
 func _update_camera() -> void:
 	var player_pos: Vector3 = _player_node.position
 
-	# Step 1: Yaw the camera so the player is centered horizontally.
+	# Compute flat vector from camera to player and desired yaw
 	var cam_pos: Vector3 = _camera.global_transform.origin
 	var to_player: Vector3 = player_pos - cam_pos
 	var to_player_flat: Vector3 = Vector3(to_player.x, 0.0, to_player.z)
 	if to_player_flat.length() > 0.0001:
 		var desired_yaw: float = atan2(to_player_flat.x, to_player_flat.z)
-		var cam_rot: Vector3 = _camera.rotation
-		cam_rot.y = desired_yaw
-		_camera.rotation = cam_rot
 
-	# Step 2: Translate along the camera's view (forward) to maintain fixed distance.
+		# Helper: shortest signed angle difference in [-PI, PI]
+		var TAU: float = PI * 2.0
+		func _angle_diff(a: float, b: float) -> float:
+			var d: float = a - b
+			while d > PI:
+				d -= TAU
+			while d < -PI:
+				d += TAU
+			return d
+
+		var current_yaw: float = _camera.rotation.y
+		var diff: float = _angle_diff(desired_yaw, current_yaw)
+
+		# Rotate only up to camera_yaw_speed * frame_delta to avoid instant flips
+		var max_step: float = camera_yaw_speed * Engine.get_physics_process_delta_time()
+		var step: float = diff
+		if abs(diff) > max_step:
+			step = sign(diff) * max_step
+		_camera.rotate_y(step)
+
+	# After yawing, compute forward and place camera at desired distance
 	var cam_forward: Vector3 = -_camera.global_transform.basis.z.normalized()
 	var desired_pos: Vector3 = player_pos - cam_forward * camera_distance
-
-	# Keep a fixed vertical offset above the player.
 	desired_pos.y = player_pos.y + camera_height
 
-	# Apply shoulder offset (camera-relative right vector).
+	# Apply shoulder offset relative to current camera right vector
 	var cam_right: Vector3 = _camera.global_transform.basis.x.normalized()
 	desired_pos += cam_right * camera_shoulder_offset
 
+	# Place camera instantly at desired position and look at player
 	_camera.global_transform = Transform3D(_camera.global_transform.basis, desired_pos)
 	_camera.look_at(player_pos, Vector3.UP)
 
