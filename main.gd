@@ -228,7 +228,59 @@ func _update_camera() -> void:
 	var cur_rot: Vector3 = _camera.rotation
 	cur_rot.y = yaw_after_step
 	_camera.rotation = cur_rot
+	var player_pos: Vector3 = _player_node.position
 
+	# Only perform the full camera re-align when the player has moved (position change),
+	# not when they only rotate in place.
+	var moved := (player_pos - _prev_player_pos).length_squared() > _camera_move_epsilon * _camera_move_epsilon
+	if not moved:
+		return
+
+	# Step 0: gather camera/player positions
+	var cam_pos: Vector3 = _camera.global_transform.origin
+
+	# Step 1: horizontal angle between camera view and line to player (ground plane)
+	var cam_forward: Vector3 = -_camera.global_transform.basis.z
+	var forward_flat: Vector3 = Vector3(cam_forward.x, 0.0, cam_forward.z)
+	var to_player_flat: Vector3 = Vector3(player_pos.x - cam_pos.x, 0.0, player_pos.z - cam_pos.z)
+	if forward_flat.length() < 0.000001 or to_player_flat.length() < 0.000001:
+		_prev_player_pos = player_pos
+		return
+	var a: Vector3 = forward_flat.normalized()
+	var b: Vector3 = to_player_flat.normalized()
+	var dot: float = clamp(a.dot(b), -1.0, 1.0)
+	var cross_y: float = a.x * b.z - a.z * b.x
+	var horiz_angle: float = atan2(cross_y, dot)
+
+	# Step 2: rotate camera around its vertical axis by horiz_angle
+	_camera.rotate_y(horiz_angle)
+
+	# Step 3: move camera vertically to maintain camera_height above player
+	cam_pos = _camera.global_transform.origin
+	cam_pos.y = player_pos.y + camera_height
+
+	# Step 4: horizontal distance between player and camera
+	var horiz_vec: Vector3 = Vector3(player_pos.x - cam_pos.x, 0.0, player_pos.z - cam_pos.z)
+	var horiz_dist: float = horiz_vec.length()
+
+	# Step 5: scalar difference between current horizontal distance and desired camera_distance
+	var diff: float = horiz_dist - camera_distance
+
+	# Step 6: move camera along ground-plane unit vector between camera and player by diff
+	if horiz_dist > 0.000001:
+		var u: Vector3 = horiz_vec / horiz_dist
+		cam_pos.x += u.x * diff
+		cam_pos.z += u.z * diff
+
+	# Apply new camera position, then adjust pitch to face player while preserving yaw
+	var saved_yaw: float = _camera.rotation.y
+	_camera.global_transform = Transform3D(_camera.global_transform.basis, cam_pos)
+	_camera.look_at(player_pos, Vector3.UP)
+	var cur_rot: Vector3 = _camera.rotation
+	cur_rot.y = saved_yaw
+	_camera.rotation = cur_rot
+
+	_prev_player_pos = player_pos
 func _update_hud() -> void:
 	var pos_text := "Pos: (0, 0, 0)"
 	if not _last_state.is_empty():
