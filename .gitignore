@@ -14,3 +14,14 @@ icon.svg.import
 # Python virtualenv
 venv/
 
+# Python cache and common local artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+# IDE/editor dirs
+.idea/
+
