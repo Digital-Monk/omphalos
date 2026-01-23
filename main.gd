@@ -175,9 +175,31 @@ func _apply_state() -> void:
 	_update_camera()
 
 func _update_camera() -> void:
-	var cam_target := _player_node.position
-	_camera.position = cam_target + Vector3(camera_shoulder_offset, camera_height, camera_distance)
-	_camera.look_at(cam_target, Vector3.UP)
+	var player_pos: Vector3 = _player_node.position
+
+	# Step 1: Yaw the camera so the player is centered horizontally.
+	var cam_pos: Vector3 = _camera.global_transform.origin
+	var to_player: Vector3 = player_pos - cam_pos
+	var to_player_flat: Vector3 = Vector3(to_player.x, 0.0, to_player.z)
+	if to_player_flat.length() > 0.0001:
+		var desired_yaw: float = atan2(to_player_flat.x, to_player_flat.z)
+		var cam_rot: Vector3 = _camera.rotation
+		cam_rot.y = desired_yaw
+		_camera.rotation = cam_rot
+
+	# Step 2: Translate along the camera's view (forward) to maintain fixed distance.
+	var cam_forward: Vector3 = -_camera.global_transform.basis.z.normalized()
+	var desired_pos: Vector3 = player_pos - cam_forward * camera_distance
+
+	# Keep a fixed vertical offset above the player.
+	desired_pos.y = player_pos.y + camera_height
+
+	# Apply shoulder offset (camera-relative right vector).
+	var cam_right: Vector3 = _camera.global_transform.basis.x.normalized()
+	desired_pos += cam_right * camera_shoulder_offset
+
+	_camera.global_transform = Transform3D(_camera.global_transform.basis, desired_pos)
+	_camera.look_at(player_pos, Vector3.UP)
 
 func _update_hud() -> void:
 	var pos_text := "Pos: (0, 0, 0)"
