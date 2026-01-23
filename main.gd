@@ -35,6 +35,8 @@ var _send_count := 0
 var _last_send_time_ms := 0
 var _local_port := 0
 var _has_server := false
+var _prev_player_pos: Vector3 = Vector3(INF, INF, INF)
+var _camera_move_epsilon: float = 0.001
 
 func _ready() -> void:
 	_setup_scene()
