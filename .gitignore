@@ -1,54 +1,20 @@
 # Godot 4+ specific ignores
 .godot/
-.nomedia
+/android/
 
-# Godot-specific ignores
-.import/
-export.cfg
-export_credentials.cfg
-
-# Imported translations (automatically generated from CSV files)
-*.translation
-
-# Mono-specific ignores
-.mono/
-data_*/
-mono_crash.*.json
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# IDE
+# Local/editor/IDE and project artifacts
+.editorconfig
+.gitattributes
+.github/
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
 
-# Generated images and data
-*.png
-*.jpg
-*.jpeg
-worlds/*.json
+# Godot generated UID for imported scene (keep local)
+main.gd.uid
+
+# Icon imports and editor artifacts
+icon.svg
+icon.svg.import
+
+# Python virtualenv
+venv/
+
