@@ -25,3 +25,12 @@ __pycache__/
 # IDE/editor dirs
 .idea/
 
+
+server/build/
+
+# Top-level build artifacts (CMake configure logs, etc.)
+build/
+
+# Local server runtime logs
+server.log
+server_tcp.log

@@ -22,8 +22,23 @@ pip install -r requirements.txt
 
 ## Running the Game
 
-### Main Game
-To launch the main game with the visual interface:
+### Godot Client + C++ Server (TCP)
+The current end-to-end path is:
+- Godot runs the client + renderer.
+- A C++ server streams terrain chunks over **TCP** using a lock-step “WANT batch → CHUNK frames → BATCH_END” protocol.
+
+From the repo root, the simplest way to run it is:
+```bash
+./rungame.sh
+```
+
+This script:
+- Configures/builds the C++ server in `server/build/`.
+- Launches the TCP server on port `7778`.
+- Launches Godot with `OMPH_TCP=1` so the client uses TCP.
+
+### Python Headless Prototype (No Renderer)
+To exercise the headless Python `Game` class (logic only; Godot consumes state separately):
 ```bash
 python -m game.main
 ```
@@ -58,8 +73,17 @@ This creates `worlds/custom_spells.json` with example spell definitions.
 ## Game Controls
 
 ### Movement
-- **WASD** or **Arrow Keys**: Move your character around the world
-- **Mouse**: Position cursor for targeting spells and evocation
+- **W/S**: Move forward/backward
+- **A/D**: Strafe left/right
+- **E**: Jump (also treated as "up" while flying)
+- **R**: Fly up
+- **F**: Fly down
+- **SHIFT**: Sprint (3x)
+- **CTRL**: Hyper-sprint (100x)
+- **Mouse X**: Yaw (turn character)
+- **Mouse Y**: Pitch camera (mouse forward pitches up, mouse back pitches down)
+- **ESC**: Release mouse capture
+- **TAB**: Re-capture mouse
 
 ### Magic Systems
 
@@ -186,6 +210,60 @@ Note: The game is currently in a state where the core logic has been implemented
 The game is being transitioned to Godot for rendering. The core Python logic can be integrated with Godot through:
 - GDScript calling Python modules
 - Or rewriting the rendering layer in Godot while keeping the game logic structure
+
+### TCP Lock-Step Protocol (Godot <-> C++ Server)
+Terrain streaming uses compact framed binary messages over **TCP**.
+
+Packet framing (little-endian):
+- `u32 magic` = `0x4F4D5048` (`OMPH`)
+- `u8 version` = `1`
+- `u8 type`
+- `u32 seq`
+- `u32 payload_len`
+- `payload_len` bytes payload
+
+Message types:
+- `1` = `HELLO` (client -> server, empty payload)
+- `5` = `CHUNK` (server -> client)
+- `6` = `WANT` (client -> server: request a batch of chunks)
+- `7` = `INFO` (server -> client: server capabilities + terrain config)
+- `8` = `BATCH_END` (server -> client: marks completion of the batch for a given request seq)
+
+`INFO` payload:
+- `u32 batch_n` (server-advertised batch size; typically worker thread count)
+- `f32 chunk_size`
+- `i32 chunk_resolution`
+- `i32 view_distance_chunks`
+- `f32 height_amplitude`
+
+`WANT` payload (single fragment in TCP mode):
+- `u32 gen`
+- `u8 part` (always `0`)
+- `u8 total_parts` (always `1`)
+- `i32 pcx, pcz` (center chunk coords)
+- `u32 count`
+- `count` × (`i16 dx`, `i16 dz`) signed offsets from `(pcx,pcz)`
+
+`BATCH_END` payload:
+- `u32 count` (chunks sent in this batch)
+
+`CHUNK` payload:
+- `i32 cx, cz`
+- `f32 chunk_size`
+- `i32 chunk_resolution`
+- `f32 height_amplitude`
+- `f32 height_scale`
+- `f32 sea00, sea10, sea01, sea11` (sea level sampled at the four chunk corners)
+- `u32 height_count`
+- `i16[height_count] quantized_heights`
+
+Height decode:
+- `height = quantized_height * height_scale`
+- Current server quantization is `q16` scaled by terrain amplitude.
+
+Note:
+- Sea level is currently fixed at `y = 0.0` everywhere and the Godot client renders a single global water plane.
+- The old sea-level noise has been repurposed into a low-frequency **bedrock** field; terrain height is derived from bedrock + log-compressed elevation.
 
 ### Performance Issues
 If the game runs slowly:

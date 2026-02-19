@@ -29,7 +29,8 @@ var _tcp := StreamPeerTCP.new()
 var _tcp_rx: PackedByteArray = PackedByteArray()
 var _tcp_seq: int = 0
 var _tcp_batch_n: int = 0
-var _tcp_waiting_batch: bool = false
+var _tcp_waiting_batch: int = 0
+var _tcp_max_batches_in_flight: int = 1
 var _tcp_connected: bool = false
 var _tcp_hello_sent: bool = false
 var _tcp_reconnect_timer: float = 0.0
@@ -48,8 +49,8 @@ var _pending_chunks: Array = []
 # Raw chunk payloads received from TCP. We decode a limited number per frame
 # to avoid spikes when a batch arrives.
 var _pending_chunk_packets: Array = []
-var _max_chunk_decodes_per_frame: int = 256
-var _max_mesh_builds_per_frame: int = 64
+var _max_chunk_decodes_per_frame: int = 48
+var _max_mesh_builds_per_frame: int = 48
 # All chunks whose data has arrived from the server (superset of _chunks).
 # Used by the want list so we never re-request data we already have.
 var _received_chunks: Dictionary = {}
@@ -108,7 +109,7 @@ func _connect_tcp() -> void:
 	_tcp_rx = PackedByteArray()
 	_tcp_seq = 0
 	_tcp_batch_n = 0
-	_tcp_waiting_batch = false
+	_tcp_waiting_batch = 0
 	_has_server = false
 	_tcp_reconnect_timer = 0.0
 	_tcp_hello_sent = false
@@ -167,7 +168,7 @@ func _poll_tcp(delta: float) -> void:
 	else:
 		_tcp_connected = false
 		_has_server = false
-		_tcp_waiting_batch = false
+		_tcp_waiting_batch = 0
 		_tcp_reconnect_timer += delta
 		if _tcp_reconnect_timer >= _tcp_reconnect_interval:
 			_tcp_reconnect_timer = 0.0
@@ -225,7 +226,7 @@ func _poll_tcp(delta: float) -> void:
 				_chunk_height_amplitude = float(spb.get_float())
 				_has_server = true
 		elif msg_type == MSG_BATCH_END:
-			_tcp_waiting_batch = false
+			_tcp_waiting_batch = maxi(0, _tcp_waiting_batch - 1)
 			_packet_count += 1
 
 func _apply_local_input(delta: float) -> void:
@@ -260,36 +261,64 @@ func _apply_local_input(delta: float) -> void:
 func _maybe_send_want_batch_tcp() -> void:
 	if not _tcp_connected or not _has_server:
 		return
-	if _tcp_waiting_batch:
-		return
-	_ensure_want_offsets()
-	var pcx := int(floor(_player_node.position.x / _chunk_size))
-	var pcz := int(floor(_player_node.position.z / _chunk_size))
-	_want_outstanding = _count_missing_visible(pcx, pcz)
-	if _want_outstanding <= 0:
+	if _tcp_waiting_batch >= _tcp_max_batches_in_flight:
 		return
 
+	var pcx := int(floor(_player_node.position.x / _chunk_size))
+	var pcz := int(floor(_player_node.position.z / _chunk_size))
+
+	# Forward direction in chunk-space.
+	var fwd_x := sin(_facing_angle)
+	var fwd_z := cos(_facing_angle)
+
 	var target_n := maxi(1, _tcp_batch_n)
+
+	# ── Step 1: 9 patches centered on the player (always, regardless of facing) ──
 	var send_list := PackedInt32Array()
-	for packed32 in _want_offsets:
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			if not _received_chunks.has(Vector2i(pcx + dx, pcz + dz)):
+				send_list.append(((dx & 0xFFFF) << 16) | (dz & 0xFFFF))
+				if send_list.size() >= target_n:
+					break
 		if send_list.size() >= target_n:
 			break
-		var dx_u: int = (packed32 >> 16) & 0xFFFF
-		var dz_u: int = packed32 & 0xFFFF
-		var dx: int = dx_u - 0x10000 if dx_u >= 0x8000 else dx_u
-		var dz: int = dz_u - 0x10000 if dz_u >= 0x8000 else dz_u
-		if _received_chunks.has(Vector2i(pcx + dx, pcz + dz)):
-			continue
-		send_list.append(packed32)
+
+	# ── Step 2: FOV sweep outward — offset table is distance-sorted so ──
+	#    the result is naturally priority-ordered.  No sort needed.
+	if send_list.size() < target_n:
+		_ensure_want_offsets()
+		# cos²(60°) = 0.25 — accept offsets within ±60° of facing.
+		const FOV_COS2 := 0.25
+		for packed32 in _want_offsets:
+			var dx_u: int = (packed32 >> 16) & 0xFFFF
+			var dz_u: int = packed32 & 0xFFFF
+			var dx: int = dx_u - 0x10000 if dx_u >= 0x8000 else dx_u
+			var dz: int = dz_u - 0x10000 if dz_u >= 0x8000 else dz_u
+			var dist2 := dx * dx + dz * dz
+			if dist2 <= 2:
+				continue  # already handled by 3×3 pass
+			var dot := float(dx) * fwd_x + float(dz) * fwd_z
+			if dot <= 0.0 or dot * dot < FOV_COS2 * float(dist2):
+				continue
+			if _received_chunks.has(Vector2i(pcx + dx, pcz + dz)):
+				continue
+			send_list.append(packed32)
+			if send_list.size() >= target_n:
+				break
+
+	_want_outstanding = send_list.size()
+	if send_list.is_empty():
+		return
 
 	_tcp_seq = (_tcp_seq + 1) & 0x7FFFFFFF
 	var req_id := _tcp_seq
 
 	var spb := StreamPeerBuffer.new()
 	spb.big_endian = false
-	spb.put_u32(req_id)  # gen (mirrors existing WANT layout; not used by TCP server)
-	spb.put_u8(0)        # part
-	spb.put_u8(1)        # total parts
+	spb.put_u32(req_id)
+	spb.put_u8(0)
+	spb.put_u8(1)
 	spb.put_32(pcx)
 	spb.put_32(pcz)
 	spb.put_u32(send_list.size())
@@ -300,7 +329,7 @@ func _maybe_send_want_batch_tcp() -> void:
 		var dz: int = dz_u - 0x10000 if dz_u >= 0x8000 else dz_u
 		spb.put_16(dx)
 		spb.put_16(dz)
-	_tcp_waiting_batch = true
+	_tcp_waiting_batch += 1
 	_tcp_send_packet(MSG_WANT, req_id, spb.data_array)
 
 func _input(event: InputEvent) -> void:
@@ -497,7 +526,7 @@ func _update_hud() -> void:
 	status += "  Connected:" + ("1" if _tcp_connected else "0")
 	status += "  Hello:" + ("1" if _tcp_hello_sent else "0")
 	status += "  BatchN:" + str(_tcp_batch_n)
-	status += "  Waiting:" + ("1" if _tcp_waiting_batch else "0")
+	status += "  Waiting:" + str(_tcp_waiting_batch)
 	status += "  Batches:" + str(_packet_count)
 	status += "  Sent: " + str(_send_count) + "  LastSend(ms): " + str(_last_send_time_ms)
 	status += "  Target: " + server_host + ":" + str(server_tcp_port)
@@ -529,44 +558,34 @@ func _drain_chunk_queue() -> void:
 	if _pending_chunks.is_empty():
 		return
 
-	# ── Priority sort: build nearest chunks first, drop out-of-range ones ──
 	var pcx := int(floor(_player_node.position.x / _chunk_size))
 	var pcz := int(floor(_player_node.position.z / _chunk_size))
 	var r2 := view_distance_chunks * view_distance_chunks
 
-	# Drop chunks that have moved outside the view distance.
-	var kept: Array = []
-	for p in _pending_chunks:
-		var dx := int(p["cx"]) - pcx
-		var dz := int(p["cz"]) - pcz
-		if dx * dx + dz * dz <= r2:
-			kept.push_back(p)
-	_pending_chunks = kept
-
-	# Sort remaining by distance ascending (nearest first).
-	_pending_chunks.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var adx := int(a["cx"]) - pcx
-		var adz := int(a["cz"]) - pcz
-		var bdx := int(b["cx"]) - pcx
-		var bdz := int(b["cz"]) - pcz
-		return (adx * adx + adz * adz) < (bdx * bdx + bdz * bdz)
-	)
-
-	var budget_usec := 8000  # 8 ms — mesh build is now GPU-upload only
-	var start := Time.get_ticks_usec()
+	# FIFO drain — chunks were requested in forward-biased priority order, so
+	# they arrive in roughly that order.  Pop from front, skip stale entries.
 	var built := 0
-	while not _pending_chunks.is_empty() and built < _max_mesh_builds_per_frame:
-		if built > 0 and (Time.get_ticks_usec() - start) >= budget_usec:
-			break
-		var payload: Dictionary = _pending_chunks.pop_front() as Dictionary
-		var cx := int(payload.get("cx", 0))
-		var cz := int(payload.get("cz", 0))
+	var kept := 0  # write cursor for in-place compaction
+	var limit := _max_mesh_builds_per_frame
+	for i in range(_pending_chunks.size()):
+		var p: Dictionary = _pending_chunks[i]
+		var cx := int(p["cx"])
+		var cz := int(p["cz"])
+		var dx := cx - pcx
+		var dz := cz - pcz
+		if dx * dx + dz * dz > r2:
+			continue  # prune out-of-range
 		var key := Vector2i(cx, cz)
 		if _chunks.has(key):
-			continue
-		var height_bytes: PackedByteArray = payload.get("height_bytes", PackedByteArray())
-		_create_chunk(cx, cz, height_bytes)
-		built += 1
+			continue  # already built
+		if built < limit:
+			var height_bytes: PackedByteArray = p.get("height_bytes", PackedByteArray())
+			_create_chunk(cx, cz, height_bytes)
+			built += 1
+		else:
+			_pending_chunks[kept] = p
+			kept += 1
+	_pending_chunks.resize(kept)
 
 func _prune_chunks() -> void:
 	var px := _player_node.position.x
@@ -611,17 +630,6 @@ func _build_sorted_offsets(r: int) -> PackedInt32Array:
 		out[i] = int(packed64[i] & 0xFFFFFFFF)
 	return out
 
-func _count_missing_visible(pcx: int, pcz: int) -> int:
-	var missing := 0
-	for packed32 in _want_offsets:
-		var dx_u: int = (packed32 >> 16) & 0xFFFF
-		var dz_u: int = packed32 & 0xFFFF
-		var dx: int = dx_u - 0x10000 if dx_u >= 0x8000 else dx_u
-		var dz: int = dz_u - 0x10000 if dz_u >= 0x8000 else dz_u
-		if not _received_chunks.has(Vector2i(pcx + dx, pcz + dz)):
-			missing += 1
-	return missing
-
 func _create_chunk(cx: int, cz: int, height_bytes: PackedByteArray) -> void:
 	_ensure_shared_flat_mesh()
 	var n := _chunk_resolution + 1
@@ -641,6 +649,13 @@ func _create_chunk(cx: int, cz: int, height_bytes: PackedByteArray) -> void:
 	chunk.mesh = _shared_flat_mesh
 	chunk.material_override = mat
 	chunk.position = Vector3(cx * _chunk_size, 0.0, cz * _chunk_size)
+	# The shared flat mesh sits at Y=0; the vertex shader displaces Y by
+	# up to ±height_amplitude.  Set a custom AABB so frustum culling works.
+	var amp := _chunk_height_amplitude
+	chunk.custom_aabb = AABB(
+		Vector3(0.0, -amp, 0.0),
+		Vector3(_chunk_size, amp * 2.0, _chunk_size)
+	)
 	add_child(chunk)
 	_chunks[Vector2i(cx, cz)] = chunk
 
