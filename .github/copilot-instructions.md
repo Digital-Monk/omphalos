@@ -36,4 +36,24 @@
 - For UI or visualization requests, remind the user that the Python code is headless and is meant to be consumed by Godot; reference `game/main.py` and the example scripts when suggesting new debug views.
 - Mention the presence of integration_test.py whenever you suggest verifying multiple subsystems, since it prints the key commands and outcomes for each system.
 - Point the user to HOWTO.md/IMPLEMENTATION.md when they need controls or rationale for a subsystem; they are kept up to date with the play/testing workflow.
-- When generating or modifying UDP networking code, explicitly address communication concerns (packet loss, ordering, duplication, latency spikes, heartbeats, reconnect/backoff, validation, and graceful degradation).
+
+## Terrain streaming — ABSOLUTE RULES (do NOT violate)
+The Godot client (`main.gd`) and C++ server (`server/src/tcp_server.cpp`) use a strict **request→response→build** cycle over TCP. The following rules are hard-won lessons from multiple failed attempts at "optimization" that actually destroyed performance:
+
+### NEVER queue or pipeline terrain chunks
+- The system is **strictly synchronous**: request N chunks → receive N chunks → build all N → repeat.
+- There must be **zero queued/pending chunks** between cycles. `_pending_chunks` must be empty before the next batch response arrives.
+- **1 batch in flight. Always.** Never increase `_tcp_max_batches_in_flight` above 1.
+- Never add "backlog detection", "throttling", or "drain budgets" — these are symptoms of queueing, and queueing is the bug.
+- Never cap the number of chunks built per frame below what was requested. `_drain_chunk_queue` builds ALL pending chunks, then clears. No FIFO, no partial drain, no "save some for next frame."
+- `target_n` (chunks requested) must always be ≤ `_max_mesh_builds_per_frame` so that every response can be fully built in one frame.
+
+### Want list construction
+- The want list is rebuilt from scratch every request. No cursor, no resumption from a previous position.
+- Step 1: check the 3×3 grid around the player. Missing chunks go first (full circle, no FOV filter).
+- Step 2: sweep the distance-sorted offset table outward, FOV-filtered (±60° of facing). Append missing chunks until the list reaches `target_n`.
+- The result is naturally priority-sorted (nearest first) because the offset table is distance-sorted. **No scoring. No sorting.**
+- If the player moves, the next request instantly reflects the new position. There is no stale work.
+
+### Why no queues — the lesson
+Queues cause chunks requested from position A to be built at position B, producing "fill from the edge inward" artifacts. Pipelining (>1 batch in flight) means old batches' chunks sit in a FIFO behind new near chunks. The FIFO then drains old-far before new-near, making the terrain appear to fill inward from the horizon. The fix is not "smarter queue management" — it is **no queue at all**.
