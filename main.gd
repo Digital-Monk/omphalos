@@ -271,7 +271,9 @@ func _maybe_send_want_batch_tcp() -> void:
 	var fwd_x := sin(_facing_angle)
 	var fwd_z := cos(_facing_angle)
 
-	var target_n := maxi(1, _tcp_batch_n)
+	# Cap request to build capacity so _pending_chunks never accumulates a
+	# backlog.  This keeps the system strictly request→response→build→repeat.
+	var target_n := mini(maxi(1, _tcp_batch_n), _max_mesh_builds_per_frame)
 
 	# ── Step 1: 9 patches centered on the player (always, regardless of facing) ──
 	var send_list := PackedInt32Array()
@@ -562,11 +564,9 @@ func _drain_chunk_queue() -> void:
 	var pcz := int(floor(_player_node.position.z / _chunk_size))
 	var r2 := view_distance_chunks * view_distance_chunks
 
-	# FIFO drain — chunks were requested in forward-biased priority order, so
-	# they arrive in roughly that order.  Pop from front, skip stale entries.
-	var built := 0
-	var kept := 0  # write cursor for in-place compaction
-	var limit := _max_mesh_builds_per_frame
+	# Build everything — request count is capped to build capacity so this
+	# array is always small (≤ _max_mesh_builds_per_frame).  No FIFO, no
+	# ordering problem: every pending chunk gets built this frame.
 	for i in range(_pending_chunks.size()):
 		var p: Dictionary = _pending_chunks[i]
 		var cx := int(p["cx"])
@@ -578,14 +578,9 @@ func _drain_chunk_queue() -> void:
 		var key := Vector2i(cx, cz)
 		if _chunks.has(key):
 			continue  # already built
-		if built < limit:
-			var height_bytes: PackedByteArray = p.get("height_bytes", PackedByteArray())
-			_create_chunk(cx, cz, height_bytes)
-			built += 1
-		else:
-			_pending_chunks[kept] = p
-			kept += 1
-	_pending_chunks.resize(kept)
+		var height_bytes: PackedByteArray = p.get("height_bytes", PackedByteArray())
+		_create_chunk(cx, cz, height_bytes)
+	_pending_chunks.clear()
 
 func _prune_chunks() -> void:
 	var px := _player_node.position.x
