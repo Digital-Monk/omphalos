@@ -31,7 +31,7 @@ private:
     uint16_t port_;
 
     TerrainConfig cfg_{};
-    int view_distance_chunks_ = 150;
+    int view_distance_chunks_ = 15;
 
     ThreadPool pool_;
 

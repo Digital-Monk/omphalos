@@ -33,20 +33,39 @@ OmphalosTcpServer::OmphalosTcpServer(const std::string& host, uint16_t port, int
 {
     cfg_.chunk_size               = 128.0;
     cfg_.chunk_resolution         = 128;
+    // Elevation shaping model defaults.
+    cfg_.elevation_shape_frequency = 0.002;   // 500 ft wavelength
+    cfg_.elevation_scale_frequency = 0.0002;  // 5000 ft wavelength
+    cfg_.elevation_scale_min       = 0.1;
+    cfg_.elevation_scale_max       = 20000.0;
+    cfg_.detail_fgm_frequency      = 0.04;
+    cfg_.detail_fgm_octaves        = 7;
+    cfg_.detail_fgm_amplitude      = 1.0;
+    // height_amplitude will be computed below as the maximum expected
+    // absolute displacement for AABB / client hints.
     cfg_.height_amplitude         = 120.0;
     cfg_.noise_seed               = 1337;
     cfg_.sea_level                = 0.0;
-    cfg_.bedrock_frequency        = 0.0025;
-    cfg_.bumpiness_frequency      = 0.06;
-    cfg_.bumpiness_min            = 0.2;
-    cfg_.bumpiness_max            = 2.2;
-    cfg_.detail_frequency         = 0.02;
-    cfg_.detail_octaves           = 4;
-    cfg_.plateau_zone_frequency   = 0.04;
+    cfg_.bedrock_frequency        = 0.0002;
+    cfg_.plateau_zone_frequency   = 0.00002;
     cfg_.plateau_zone_threshold   = 0.25;
-    cfg_.plateau_height_base      = 90.0;
-    cfg_.plateau_height_variation = 60.0;
-    cfg_.plateau_height_frequency = 0.2;
+    cfg_.plateau_base_height_base = 0.0;
+    cfg_.plateau_base_height_variation = 4950.0;
+    cfg_.plateau_base_height_frequency = 0.000001;
+    cfg_.plateau_detail_height_frequency = 0.001;
+    cfg_.plateau_detail_height_octaves = 5;
+    cfg_.plateau_detail_height_amp_mul = 0.5;
+    cfg_.plateau_detail_height_amplitude = 100.0;
+    cfg_.bedrock_min              = -90.0;
+    cfg_.bedrock_span             = 120.0;
+
+    // Compute a conservative reported height amplitude for clients.
+    // Consider elevation_scale max, detail_fgm amplitude, plateau max, and bedrock depth.
+    double max_up = cfg_.plateau_base_height_base + cfg_.plateau_base_height_variation + std::fabs(cfg_.plateau_detail_height_amplitude);
+    double max_elevation = cfg_.elevation_scale_max + std::fabs(cfg_.detail_fgm_amplitude);
+    double max_down = std::fabs(cfg_.bedrock_min);
+    cfg_.height_amplitude = std::max(max_up, max_elevation);
+    cfg_.height_amplitude = std::max(cfg_.height_amplitude, max_down);
 
     listen_fd_ = create_listen_socket(host, port);
 
@@ -181,6 +200,14 @@ bool OmphalosTcpServer::handle_client(int client_fd) {
             continue;
         }
 
+        if (type_u8 == static_cast<uint8_t>(MsgType::SetLayerMode)) {
+            if (!payload.empty()) {
+                cfg_.layer_mode = std::min(4, std::max(0, static_cast<int>(payload[0])));
+                std::printf("TCP SetLayerMode: mode=%d\n", cfg_.layer_mode);
+            }
+            continue;
+        }
+
         if (type_u8 != static_cast<uint8_t>(MsgType::Want)) {
             continue;
         }
@@ -193,11 +220,12 @@ bool OmphalosTcpServer::handle_client(int client_fd) {
             continue;
         }
 
-        std::printf("TCP WANT: seq=%u center=(%d,%d) count=%u\n",
+        std::printf("TCP WANT: seq=%u center=(%d,%d) count=%u scale=%u\n",
                     ph.seq,
                     frag.pcx,
                     frag.pcz,
-                    frag.count);
+                    frag.count,
+                    static_cast<unsigned>(frag.scale));
 
         // Decode requested (dx,dz) entries into chunk coordinates and submit
         // each one to the thread pool immediately.  We keep the futures in
@@ -212,6 +240,12 @@ bool OmphalosTcpServer::handle_client(int client_fd) {
 
         const uint8_t* p = frag.entries;
         TerrainConfig cfg_snap = cfg_;          // snapshot config once
+        // Mega-chunks: multiply chunk_size by scale (resolution stays the same,
+        // so each vertex covers more ground).  Scale 1 = normal, 8 = mega.
+        const int scale = std::max(1, static_cast<int>(frag.scale));
+        if (scale > 1) {
+            cfg_snap.chunk_size *= static_cast<double>(scale);
+        }
         for (uint32_t i = 0; i < frag.count; ++i, p += 4) {
             int16_t dx, dz;
             std::memcpy(&dx, p, 2);

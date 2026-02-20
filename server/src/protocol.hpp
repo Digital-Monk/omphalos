@@ -63,6 +63,7 @@ enum class MsgType : uint8_t {
     // TCP lock-step streaming mode.
     Info     = 7,  // server → client: server capabilities + terrain config
     BatchEnd = 8,  // server → client: marks end of a chunk batch for request seq
+    SetLayerMode = 9,  // client → server: select terrain layer mode 0-4
 };
 
 // ── Want fragment layout ──────────────────────────────────────
@@ -72,7 +73,7 @@ enum class MsgType : uint8_t {
 // dx/dz are signed offsets from (pcx,pcz); decode: cx = pcx+dx.
 // Note: The payload supports fragmentation (part/total_parts), but the
 // TCP lock-step server expects a single fragment (part=0,total_parts=1).
-static constexpr size_t WANT_HDR_SIZE        = 18; // 4+1+1+4+4+4
+static constexpr size_t WANT_HDR_SIZE        = 19; // 4+1+1+1+4+4+4
 
 // Read helpers needed by parse_want (full set is repeated below for clarity).
 inline uint32_t read_le_u32(const uint8_t* p) {
@@ -84,6 +85,7 @@ struct WantFragment {
     uint32_t gen;
     uint8_t  part;
     uint8_t  total_parts;
+    uint8_t  scale;        // chunk_size multiplier: 1 = base, 8 = mega, etc.
     int32_t  pcx;
     int32_t  pcz;
     uint32_t count;
@@ -95,6 +97,7 @@ inline bool parse_want(const uint8_t* p, size_t len, WantFragment& out) {
     out.gen         = read_le_u32(p);     p += 4;
     out.part        = *p++;
     out.total_parts = *p++;
+    out.scale       = *p++;               // chunk_size multiplier
     out.pcx         = read_le_i32(p);     p += 4;
     out.pcz         = read_le_i32(p);     p += 4;
     out.count       = read_le_u32(p);     p += 4;
