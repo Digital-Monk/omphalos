@@ -85,6 +85,9 @@ This creates `worlds/custom_spells.json` with example spell definitions.
 - **ESC**: Release mouse capture
 - **TAB**: Re-capture mouse
 
+### Planet Terrain & Speed Modifiers
+The planet prototype samples terrain deterministically from latitude/longitude using wrapped 2D noise, avoiding seams across the sphere. Surface movement applies a speed multiplier based on how many modifier keys are pressed (0-3), using `4 ** count` (1x/4x/16x/64x).
+
 ### Magic Systems
 
 #### Evocation (Direct Energy Manipulation)
